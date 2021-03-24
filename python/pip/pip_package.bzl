@@ -11,15 +11,15 @@ def pip_package():
   HOME=$$DUMMY_HOME \
     python3 -m pip install --no-cache-dir --disable-pip-version-check --no-build-isolation \
     --target=$@ """ + name.replace('_', '-') + """
-	rm -rf $$DUMMY_HOME
+  rm -rf $$DUMMY_HOME
   """,
       outs = ["pip"],
   )
 
   native.genrule(
       name = "init",
-			srcs = [],
-			cmd = "\n".join([
+      srcs = [],
+      cmd = "\n".join([
           "echo '",
           "import os",
           "import site",
@@ -31,13 +31,13 @@ def pip_package():
           "    os.path.dirname(os.path.abspath(__file__)) + \"/pip\")",
           "' | cat > $@",
       ]),
-			outs = ["__init__.py"],
-	)
+      outs = ["__init__.py"],
+  )
 
   native.py_library(
       name = name,
       srcs = ["__init__.py"] + native.glob(["pip/*.py"]),
       imports = ["pip"],
-			data = [":package"],
+      data = [":package"],
   )
 
