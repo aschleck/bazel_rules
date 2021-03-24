@@ -1,5 +1,17 @@
 # Random Bazel rules
 
+* [Docker container rules](#docker-container-rules)
+	+ [Usage](#usage)
+* [Python Pip packages](#python-pip-packages)
+	+ [Usage](#usage-1)
+* [Typescript with Soy support](#typescript-with-soy-support)
+	+ [Setup](#setup)
+	+ [Simple example](#simple-example)
+	+ [Example with a base module](#example-with-a-base-module)
+	+ [Example with raw JS](#example-with-raw-js)
+	+ [Example Soy usage](#example-soy-usage)
+
+
 ## Docker container rules
 
 The [official rules](https://github.com/bazelbuild/rules_docker) are very
