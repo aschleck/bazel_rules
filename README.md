@@ -30,7 +30,7 @@ complicated. There's probably some good reasons, but I just wanted things to be
 easy while allowing me to specify packages to install at build time.
 
 **The Docker rule is very incomplete. In particular, it only allows building
-with root `buildah` (because I use it Kubernetes without a registry.)**
+with root `buildah` (because I use it with Kubernetes without a registry.)**
 
 **Additionally, while it allows specifying an Alpine image, note that Bazel
 must be configured to build with `musl` or else the binaries wont work inside
