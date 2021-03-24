@@ -1,16 +1,27 @@
 # Random Bazel rules
 
+* [Setup](#setup)
 * [Docker container rules](#docker-container-rules)
 	+ [Usage](#usage)
 * [Python Pip packages](#python-pip-packages)
 	+ [Usage](#usage-1)
 * [Typescript with Soy support](#typescript-with-soy-support)
-	+ [Setup](#setup)
+	+ [Setup](#setup-1)
 	+ [Simple example](#simple-example)
 	+ [Example with a base module](#example-with-a-base-module)
 	+ [Example with raw JS](#example-with-raw-js)
 	+ [Example Soy usage](#example-soy-usage)
 
+## Setup
+
+Add a reference to this repository in your `WORKSPACE` file:
+   ```starlark
+   http_archive(
+       name = "aprils_rules",
+       urls = ["https://github.com/aschleck/bazel_rules/archive/master.tar.gz"],
+       strip_prefix = "bazel_rules-master",
+   )
+   ```
 
 ## Docker container rules
 
@@ -59,15 +70,6 @@ annoying, so I've made a less safe alternative.
 
 ### Usage
 
-1. Add a reference to this repository in your `WORKSPACE` file:
-
-   ```starlark
-   http_archive(
-       name = "aprils_rules",
-       urls = ["https://github.com/aschleck/bazel_rules/archive/master.tar.gz"],
-       strip_prefix = "bazel_rules-master",
-   )
-   ```
 1. Create a directory with the same name as the Pip package anywhere in your workspace:
    `mkdir -p pip/flask`
 1. Create a BUILD file for it with the following contents:
