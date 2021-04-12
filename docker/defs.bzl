@@ -42,6 +42,7 @@ def _container_impl(ctx):
   dockerfile = ctx.actions.declare_file("Dockerfile")
   executable = ctx.attr.binary[DefaultInfo].files_to_run.executable
   runfiles_dir = "app.runfiles/" + ctx.workspace_name
+  runfiles_manifest = "app.runfiles/MANIFEST"
   ctx.actions.write(
       output = dockerfile,
       content = """
@@ -50,6 +51,8 @@ def _container_impl(ctx):
           COPY runfiles.tar /
           RUN tar -xf /runfiles.tar && ln -s /%s/%s /%s
           ENTRYPOINT ["/%s"]
+          ENV RUNFILES_DIR=/%s
+          ENV RUNFILES_MANIFEST_FILE=/%s
           WORKDIR /%s
       """ % (
           base_image,
@@ -58,6 +61,8 @@ def _container_impl(ctx):
           executable.short_path,
           executable.basename,
           executable.basename,
+          runfiles_dir,
+          runfiles_manifest,
           runfiles_dir,
       )
   )
