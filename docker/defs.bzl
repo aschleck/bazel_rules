@@ -41,8 +41,8 @@ def _container_impl(ctx):
 
   dockerfile = ctx.actions.declare_file("Dockerfile")
   executable = ctx.attr.binary[DefaultInfo].files_to_run.executable
-  runfiles_dir = "app.runfiles/" + ctx.workspace_name
-  runfiles_manifest = "app.runfiles/MANIFEST"
+  runfiles_dir = "app.runfiles"
+  work_dir = runfiles_dir + "/" + ctx.workspace_name
   ctx.actions.write(
       output = dockerfile,
       content = """
@@ -52,26 +52,24 @@ def _container_impl(ctx):
           RUN tar -xf /runfiles.tar && ln -s /%s/%s /%s
           ENTRYPOINT ["/%s"]
           ENV RUNFILES_DIR=/%s
-          ENV RUNFILES_MANIFEST_FILE=/%s
           WORKDIR /%s
       """ % (
           base_image,
           package_cmds,
-          runfiles_dir,
+          work_dir,
           executable.short_path,
           executable.basename,
           executable.basename,
           runfiles_dir,
-          runfiles_manifest,
-          runfiles_dir,
+          work_dir,
       )
   )
 
   runfiles = ctx.attr.binary[DefaultInfo].default_runfiles.files.to_list()
   copy_cmds = []
   for f in runfiles:
-    copy_cmds.append("mkdir -p $(dirname %s/%s)" % (runfiles_dir, f.short_path))
-    copy_cmds.append("cp -r %s %s/%s" % (f.path, runfiles_dir, f.short_path))
+    copy_cmds.append("mkdir -p $(dirname %s/%s)" % (work_dir, f.short_path))
+    copy_cmds.append("cp -r %s %s/%s" % (f.path, work_dir, f.short_path))
 
   container = ctx.actions.declare_file(ctx.label.name)
   if ctx.attr.builder == "buildah-root":

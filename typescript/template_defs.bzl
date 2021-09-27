@@ -1,75 +1,56 @@
-load("@io_bazel_rules_closure//closure:defs.bzl", "closure_js_template_library")
-load(":defs.bzl", "ts_library")
+load(":defs.bzl", "TsLibraryInfo")
+load("//soy:defs.bzl", "SoyInputsInfo")
 
-_DEP_COMPILER = "@com_google_template_soy//:SoyHeaderCompiler"
-_JS_COMPILER = "@com_google_template_soy//:SoyToJsSrcCompiler"
+_JS_COMPILER = Label("//soy:SoyToJsSrcCompiler")
 
-SoyInputsInfo = provider(fields = ["inputs"])
-SoyWrappersInfo = provider(fields = ["wrappers"])
+SoyTsInfo = provider(fields = ["js", "ts", "rules"])
 
-def _compile_impl(ctx):
-    transitive_deps = []
-    for d in ctx.attr.deps:
-        for f in d[SoyInputsInfo].inputs:
-            transitive_deps.append(f)
+def _compile_recursive_impl(target, ctx):
+    srcs = []
+    soy_js_files = []
+    for s in ctx.rule.attr.srcs:
+        for src in s.files.to_list():
+            srcs.append(src)
+            soy_js_files.append(
+                ctx.actions.declare_file(src.basename + ".js"))
 
-    compiled_deps = ctx.actions.declare_file(ctx.attr.name + ".deps.gz")
-    ctx.actions.run(
-        inputs = ctx.files.srcs + transitive_deps,
-        outputs = [compiled_deps],
-        executable = ctx.executable.dep_compiler,
-        arguments = [
-            "--output",
-            compiled_deps.path,
-            "--srcs",
-            " ".join([f.path for f in ctx.files.srcs]),
-        ] + ([
-            "--depHeaders",
-            " ".join([d.path for d in transitive_deps]),
-        ] if transitive_deps else []),
-    )
+    direct_deps = []
+    indirect_deps = []
+    for d in ctx.rule.attr.deps:
+        for f in d[SoyInputsInfo].direct:
+            direct_deps.append(f)
+        for f in d[SoyInputsInfo].indirect:
+            direct_deps.append(f)
+            indirect_deps.append(f)
 
     ctx.actions.run(
-        inputs = ctx.files.srcs + transitive_deps,
-        outputs = ctx.outputs.outputs,
-        executable = ctx.executable.js_compiler,
+        inputs = srcs + direct_deps + indirect_deps,
+        outputs = soy_js_files,
+        executable = ctx.executable._js_compiler,
         arguments = [
             "--outputPathFormat",
             "%s/{INPUT_DIRECTORY}/{INPUT_FILE_NAME}.js" % ctx.configuration.genfiles_dir.path,
             "--srcs",
-            " ".join([f.path for f in ctx.files.srcs]),
+            " ".join([f.path for f in srcs]),
         ] + ([
             "--depHeaders",
-            " ".join([d.path for d in transitive_deps]),
-        ] if transitive_deps else []),
+            ",".join([d.path for d in direct_deps]),
+        ] if direct_deps else []) + ([
+            "--indirectDepHeaders",
+            ",".join([d.path for d in indirect_deps]),
+        ] if indirect_deps else []),
     )
 
-    return SoyInputsInfo(
-        inputs = [compiled_deps] + transitive_deps,
-    )
-
-_compile = rule(
-    implementation = _compile_impl,
-    attrs = {
-        "srcs": attr.label_list(allow_empty=False, allow_files=[".soy"], mandatory=True),
-        "deps": attr.label_list(),
-        "outputs": attr.output_list(),
-        "dep_compiler": attr.label(cfg="host", executable=True, default=_DEP_COMPILER),
-        "js_compiler": attr.label(cfg="host", executable=True, default=_JS_COMPILER),
-    },
-)
-
-def _ts_wrappers_impl(ctx):
     commands = []
-    outputs = []
+    ts_wrappers = []
     count = 0
-    for f in ctx.files.js_srcs:
+    for f in soy_js_files:
         basic = f.short_path.replace(".soy.js", "_soy")
         out = ctx.actions.declare_file(f.basename.replace(".soy.js", "_soy.ts"), sibling=f)
-        outputs.append(out)
+        ts_wrappers.append(out)
 
         commands.extend([
-            "echo \"import * as rule from './%s_rule';\" >> %s" % (ctx.attr.name, out.path),
+            "echo \"import * as rule from './%s_rule';\" >> %s" % (ctx.rule.attr.name, out.path),
             "echo \"import * as wrapped_%s from '%s_wrapped';\" >> %s" % (count, basic, out.path),
             "echo \"export function dep_link(): void {\n  rule.link();\n}\" >> %s" % out.path,
             "grep 'function(opt_data, opt_ijData)' %s | awk '{print $1}' | sed 's/^.*\\.\\([^.]*\\)/export function \\1(opt_data?: object, opt_ijData?: object): string {\\n  return wrapped_%s.\\1(opt_data, opt_ijData);\\n}/' >> %s" % (f.path, count, out.path),
@@ -77,9 +58,9 @@ def _ts_wrappers_impl(ctx):
         count += 1
 
     count = 0
-    rule_ts = ctx.actions.declare_file("%s_rule.ts" % ctx.attr.name)
-    for dep in ctx.attr.soy_deps:
-        for wrapper in dep[SoyWrappersInfo].wrappers:
+    rule_ts = ctx.actions.declare_file("%s_rule.ts" % ctx.rule.attr.name)
+    for dep in ctx.rule.attr.deps:
+        for wrapper in dep[SoyTsInfo].ts.to_list():
             basic = wrapper.short_path.replace('.ts', '')
             commands.append(
                 "echo \"import * as dep_%s from '%s';\" >> %s" % (count, basic, rule_ts.path))
@@ -90,61 +71,30 @@ def _ts_wrappers_impl(ctx):
     commands.append("echo \"}\" >> %s" % rule_ts.path)
 
     ctx.actions.run_shell(
-        inputs = ctx.files.js_srcs,
-        outputs = outputs + [rule_ts],
+        inputs = soy_js_files,
+        outputs = ts_wrappers + [rule_ts],
         command = "\n".join(commands),
     )
 
-    return [
-        DefaultInfo(
-            files = depset(outputs + [rule_ts]),
-        ),
-        SoyWrappersInfo(
-            wrappers = outputs,
-        ),
-    ]
-
-_ts_wrappers = rule(
-    implementation = _ts_wrappers_impl,
-    attrs = {
-        "js_srcs": attr.label_list(allow_empty=False, allow_files=[".js"], mandatory=True),
-        "soy_deps": attr.label_list(),
-    },
-)
-
-def _ts_declarations_impl(ctx):
     commands = []
-    outputs = []
-    for f in ctx.files.js_srcs:
+    output_declarations = []
+    for f in soy_js_files:
         out = ctx.actions.declare_file(f.basename.replace(".soy.js", "_soy_wrapped.d.ts"), sibling=f)
         commands.append(
             "grep 'function(opt_data, opt_ijData)' %s | awk '{print $1}' | sed 's/^.*\\.\\([^.]*\\)/export function \\1(opt_data?: object, opt_ijData?: object): string;/' > %s" % (f.path, out.path))
-        outputs.append(out)
+        output_declarations.append(out)
 
     ctx.actions.run_shell(
-        inputs = ctx.files.js_srcs,
-        outputs = outputs,
+        inputs = soy_js_files,
+        outputs = output_declarations,
         command = "\n".join(commands),
     )
 
-    return [
-        DefaultInfo(
-            files = depset(outputs),
-        ),
-    ]
-
-_ts_declarations = rule(
-    implementation = _ts_declarations_impl,
-    attrs = {
-        "js_srcs": attr.label_list(allow_empty=False, allow_files=[".js"], mandatory=True),
-    },
-)
-
-def _soy_wrapped_js_impl(ctx):
     commands = []
-    outputs = []
-    for f in ctx.files.js_srcs:
-        out = ctx.actions.declare_file(f.basename.replace(".soy", "_soy_wrapped.js"), sibling=f)
+    js_wrappers = []
+    for f in soy_js_files:
+        out = ctx.actions.declare_file(f.basename.replace(".soy.js", "_soy_wrapped.js"), sibling=f)
+        js_wrappers.append(out)
         commands.extend([
             "namespace=\"$(grep goog.provide %s | sed -E \"s/goog.provide..(\\S+)..;/\\1/\")\"" % f.path,
             "echo \"let provide_cursor = window;\" >> %s" % out.path,
@@ -159,60 +109,83 @@ def _soy_wrapped_js_impl(ctx):
             "cat %s | grep -E 'goog.provide|goog.require' | sed \"s/goog.\\w*('\\(\\w*\\)\\(\\..*\\)\\?');/const \\1 = window.\\1;/\" | sort -u >> %s" % (f.path, out.path),
             "cat %s | grep -v goog.provide | grep -v goog.require >> %s" % (f.path, out.path),
         ])
-        outputs.append(out)
 
     ctx.actions.run_shell(
-        inputs = ctx.files.js_srcs,
-        outputs = outputs,
+        inputs = soy_js_files,
+        outputs = js_wrappers,
         command = "\n".join(commands),
     )
 
+    all_js = soy_js_files + js_wrappers
+    all_ts = ts_wrappers + output_declarations + [rule_ts]
+    for dep in ctx.rule.attr.deps:
+        for f in dep[TsLibraryInfo].js.to_list():
+            all_js.append(f)
+        for f in dep[TsLibraryInfo].ts.to_list():
+            all_ts.append(f)
+
+    rules = [rule_ts]
     return [
-        DefaultInfo(
-            files = depset(outputs),
+        SoyTsInfo(
+            js = depset(soy_js_files + js_wrappers),
+            ts = depset(ts_wrappers),
+            rules = depset([rule_ts]),
+        ),
+        TsLibraryInfo(
+            js = depset(all_js),
+            ts = depset(all_ts),
         ),
     ]
 
-_soy_wrapped_js = rule(
-    implementation = _soy_wrapped_js_impl,
+_compile_recursive = aspect(
+    implementation = _compile_recursive_impl,
+    attr_aspects = ["deps"],
     attrs = {
-        "js_srcs": attr.label_list(allow_empty=False, allow_files=[".js"], mandatory=True),
+        "_js_compiler": attr.label(cfg="host", executable=True, default=_JS_COMPILER),
     },
 )
 
-def ts_library_from_soy(name, srcs, soy_deps=[]):
-    compiled_js = [src + ".js" for src in srcs]
-    _compile(
-        name = name + "_compile",
-        srcs = srcs,
-        deps = [d + "_compile" for d in soy_deps],
-        outputs = compiled_js,
-    )
+def _compile_top_impl(ctx):
+    all_js = []
+    all_ts = []
+    js = []
+    ts = []
+    rules = []
+    for dep in ctx.attr.deps:
+        for f in dep[SoyTsInfo].js.to_list():
+            js.append(f)
+        for f in dep[SoyTsInfo].ts.to_list():
+            ts.append(f)
+        for f in dep[SoyTsInfo].rules.to_list():
+            rules.append(f)
+        for f in dep[TsLibraryInfo].js.to_list():
+            all_js.append(f)
+        for f in dep[TsLibraryInfo].ts.to_list():
+            all_ts.append(f)
+    return [
+        DefaultInfo(
+            files = depset(js + ts + rules),
+        ),
+        SoyTsInfo(
+            js = depset(js),
+            ts = depset(ts),
+            rules = depset(rules),
+        ),
+        TsLibraryInfo(
+            js = depset(all_js),
+            ts = depset(all_ts),
+        ),
+    ]
 
-    _ts_wrappers(
-        name = name + "_wrappers",
-        js_srcs = compiled_js,
-        soy_deps = [d + "_wrappers" for d in soy_deps],
-    )
+_compile_top = rule(
+    implementation = _compile_top_impl,
+    attrs = {
+        "deps": attr.label_list(aspects = [_compile_recursive]),
+    },
+)
 
-    _ts_declarations(
-        name = name + "_declarations",
-        js_srcs = compiled_js,
-    )
-
-    _soy_wrapped_js(
-        name = name + "_wrapped_js",
-        js_srcs = compiled_js,
-    )
-
-    ts_library(
+def ts_library_from_soy(name, srcs, soy_deps):
+    _compile_top(
         name = name,
-        srcs = [
-            ":%s_wrappers" % name,
-            ":%s_declarations" % name,
-        ],
         deps = soy_deps,
-        js_srcs = [
-            ":%s_wrapped_js" % name,
-        ],
     )

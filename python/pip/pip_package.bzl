@@ -1,4 +1,4 @@
-def pip_package():
+def pip_package(deps=None, types=None):
   name = native.package_name().split('/')[-1]
 
   native.genrule(
@@ -10,7 +10,7 @@ def pip_package():
   mkdir -p $$DUMMY_HOME
   HOME=$$DUMMY_HOME \
     python3 -m pip install --no-cache-dir --disable-pip-version-check --no-build-isolation \
-    --target=$@ """ + name.replace('_', '-') + """
+    --target=$@ """ + name.replace('_', '-') + " " + (types if types else '') + """
   rm -rf $$DUMMY_HOME
   """,
       outs = ["pip"],
@@ -39,5 +39,6 @@ def pip_package():
       srcs = ["__init__.py"] + native.glob(["pip/*.py"]),
       imports = ["pip"],
       data = [":package"],
+      deps = deps,
   )
 

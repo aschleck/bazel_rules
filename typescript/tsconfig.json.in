@@ -3,13 +3,14 @@
     "allowJs": true,
     "downlevelIteration": true,
     "module": "System",
-    "lib": ["es2019", "dom"],
+    "lib": ["esnext", "dom"],
+    "target": "es2019",
     "strict": true,
     "baseUrl": ".",
-    "rootDir": ".",
+    "rootDirs": [".", "bazel-out/k8-fastbuild/bin"],
     "paths": {
       "*": ["*", "bazel-out/k8-fastbuild/bin/*"]
     }
   },
-  "files": [__FILES__]
+  "include": ["**/*.ts"]
 }

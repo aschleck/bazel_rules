@@ -1,3 +1,5 @@
+package(default_visibility = ["//visibility:public"])
+
 exports_files([
     "goog_base.js",
     "named-register.js",
@@ -7,4 +9,3 @@ exports_files([
     "system.min.js",
     "tsconfig.json.in",
 ])
-
